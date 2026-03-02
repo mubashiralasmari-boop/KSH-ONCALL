@@ -956,6 +956,7 @@ const STORAGE_KEY = 'ksh_oncall_v3';
 // ========== PERSISTENCE ==========
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.departments));
+  saveToFirebase();
 }
 function load() {
   try {
@@ -2565,6 +2566,85 @@ function getOrthoPhoneDirect(name) {
 function getGSPhone(name) {
   if (!name) return '';
   return GS_PHONES[name.toUpperCase()] || GS_PHONES[name.toUpperCase().replace(/ /g,'')] || '';
+}
+
+
+// ===== FIREBASE REALTIME DATABASE =====
+const FIREBASE_URL = "https://on-calls-50211-default-rtdb.firebaseio.com";
+
+async function fbGet(path) {
+  try {
+    const res = await fetch(`${FIREBASE_URL}/${path}.json`);
+    return await res.json();
+  } catch(e) { return null; }
+}
+
+async function fbSet(path, data) {
+  try {
+    await fetch(`${FIREBASE_URL}/${path}.json`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    return true;
+  } catch(e) { return false; }
+}
+
+async function fbUpdate(path, data) {
+  try {
+    await fetch(`${FIREBASE_URL}/${path}.json`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    return true;
+  } catch(e) { return false; }
+}
+
+// Listen for real-time changes (SSE)
+function fbListen(path, callback) {
+  const evtSource = new EventSource(`${FIREBASE_URL}/${path}.json`, {});
+  evtSource.addEventListener('put', (e) => {
+    const data = JSON.parse(e.data);
+    if (data.data !== null) callback(data.data);
+  });
+  return evtSource;
+}
+
+let fbListener = null;
+
+// ===== SYNC: Load from Firebase, fallback to localStorage =====
+async function loadFromFirebase() {
+  showToast('جاري التزامن...', 'info');
+  const data = await fbGet('ksh_oncall');
+  if (data && data.departments) {
+    state.departments = data.departments;
+    mergePreloaded();
+    saveState();
+    renderAll();
+    showToast('✅ تم التزامن مع السحابة', 'success');
+    return true;
+  }
+  return false;
+}
+
+async function saveToFirebase() {
+  const ok = await fbSet('ksh_oncall', { departments: state.departments, updatedAt: Date.now() });
+  if (ok) showToast('✅ تم الحفظ للجميع', 'success');
+  else showToast('❌ فشل الحفظ السحابي', 'error');
+}
+
+// Start real-time listener
+function startFirebaseSync() {
+  if (fbListener) fbListener.close();
+  fbListener = fbListen('ksh_oncall', (data) => {
+    if (data && data.departments) {
+      state.departments = data.departments;
+      mergePreloaded();
+      saveState();
+      renderAll();
+    }
+  });
 }
 
 // Load saved data then merge any new preloaded depts
