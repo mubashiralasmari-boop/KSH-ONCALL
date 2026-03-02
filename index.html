@@ -2633,17 +2633,13 @@ async function loadFromFirebase() {
 
 async function saveToFirebase() {
   try {
-    // Save metadata
-    await fetch(`${FIREBASE_URL}/ksh_oncall/updatedAt.json`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(Date.now())
-    });
-    // Save each dept separately to avoid size limits
     const depts = state.departments;
+    const PRELOADED_IDS = ['dept_opht','dept_ortho','dept_im','dept_gs','dept_ent','dept_neuro','dept_uro','dept_psy'];
     for (const id of Object.keys(depts)) {
       const dept = depts[id];
-      // Save only editable data (not the big schedule arrays)
+      // For preloaded depts: only save staff lists (skip big schedules)
+      // For custom depts: save everything including schedule
+      const isPreloaded = PRELOADED_IDS.includes(id);
       const slim = {
         id: dept.id,
         nameAr: dept.nameAr,
@@ -2652,8 +2648,10 @@ async function saveToFirebase() {
         consultants: dept.consultants || [],
         specialists: dept.specialists || [],
         residents: dept.residents || [],
-        schedule: dept.schedule || {},
       };
+      if (!isPreloaded) {
+        slim.schedule = dept.schedule || {};
+      }
       const res = await fetch(`${FIREBASE_URL}/ksh_oncall/departments/${id}.json`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -2661,9 +2659,14 @@ async function saveToFirebase() {
       });
       if (!res.ok) {
         console.error('Firebase save error for', id, res.status);
-        return;
       }
     }
+    // Update timestamp
+    await fetch(`${FIREBASE_URL}/ksh_oncall/updatedAt.json`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Date.now())
+    });
     toast('✅ تم الحفظ للجميع', 'success');
   } catch(e) {
     console.error('Firebase save exception:', e);
