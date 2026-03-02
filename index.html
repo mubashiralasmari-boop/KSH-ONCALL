@@ -2616,11 +2616,11 @@ let fbListener = null;
 // ===== SYNC: Load from Firebase, fallback to localStorage =====
 async function loadFromFirebase() {
   try {
-    const res = await fetch(`${FIREBASE_URL}/ksh_oncall.json`);
+    const res = await fetch(`${FIREBASE_URL}/ksh_oncall/departments.json`);
     if (!res.ok) { console.error('Firebase load error:', res.status); return false; }
     const data = await res.json();
-    if (data && data.departments) {
-      state.departments = data.departments;
+    if (data) {
+      state.departments = data;
       mergePreloaded();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.departments));
       renderAll();
@@ -2633,28 +2633,50 @@ async function loadFromFirebase() {
 
 async function saveToFirebase() {
   try {
-    const data = { departments: state.departments, updatedAt: Date.now() };
-    const res = await fetch(`${FIREBASE_URL}/ksh_oncall.json`, {
+    // Save metadata
+    await fetch(`${FIREBASE_URL}/ksh_oncall/updatedAt.json`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data)
+      body: JSON.stringify(Date.now())
     });
-    if (res.ok) {
-      toast('✅ تم الحفظ للجميع', 'success');
-    } else {
-      console.error('Firebase save error:', res.status, res.statusText);
+    // Save each dept separately to avoid size limits
+    const depts = state.departments;
+    for (const id of Object.keys(depts)) {
+      const dept = depts[id];
+      // Save only editable data (not the big schedule arrays)
+      const slim = {
+        id: dept.id,
+        nameAr: dept.nameAr,
+        nameEn: dept.nameEn,
+        icon: dept.icon,
+        consultants: dept.consultants || [],
+        specialists: dept.specialists || [],
+        residents: dept.residents || [],
+        schedule: dept.schedule || {},
+      };
+      const res = await fetch(`${FIREBASE_URL}/ksh_oncall/departments/${id}.json`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(slim)
+      });
+      if (!res.ok) {
+        console.error('Firebase save error for', id, res.status);
+        return;
+      }
     }
+    toast('✅ تم الحفظ للجميع', 'success');
   } catch(e) {
     console.error('Firebase save exception:', e);
+    toast('❌ فشل الحفظ', 'error');
   }
 }
 
 // Start real-time listener
 function startFirebaseSync() {
   if (fbListener) fbListener.close();
-  fbListener = fbListen('ksh_oncall', (data) => {
-    if (data && data.departments) {
-      state.departments = data.departments;
+  fbListener = fbListen('ksh_oncall/departments', (data) => {
+    if (data) {
+      state.departments = data;
       mergePreloaded();
       saveState();
       renderAll();
