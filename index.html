@@ -2615,23 +2615,38 @@ let fbListener = null;
 
 // ===== SYNC: Load from Firebase, fallback to localStorage =====
 async function loadFromFirebase() {
-  showToast('جاري التزامن...', 'info');
-  const data = await fbGet('ksh_oncall');
-  if (data && data.departments) {
-    state.departments = data.departments;
-    mergePreloaded();
-    saveState();
-    renderAll();
-    showToast('✅ تم التزامن مع السحابة', 'success');
-    return true;
-  }
+  try {
+    const res = await fetch(`${FIREBASE_URL}/ksh_oncall.json`);
+    if (!res.ok) { console.error('Firebase load error:', res.status); return false; }
+    const data = await res.json();
+    if (data && data.departments) {
+      state.departments = data.departments;
+      mergePreloaded();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.departments));
+      renderAll();
+      toast('✅ تم التزامن', 'success');
+      return true;
+    }
+  } catch(e) { console.error('Firebase load exception:', e); }
   return false;
 }
 
 async function saveToFirebase() {
-  const ok = await fbSet('ksh_oncall', { departments: state.departments, updatedAt: Date.now() });
-  if (ok) showToast('✅ تم الحفظ للجميع', 'success');
-  else showToast('❌ فشل الحفظ السحابي', 'error');
+  try {
+    const data = { departments: state.departments, updatedAt: Date.now() };
+    const res = await fetch(`${FIREBASE_URL}/ksh_oncall.json`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      toast('✅ تم الحفظ للجميع', 'success');
+    } else {
+      console.error('Firebase save error:', res.status, res.statusText);
+    }
+  } catch(e) {
+    console.error('Firebase save exception:', e);
+  }
 }
 
 // Start real-time listener
